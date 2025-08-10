@@ -83,7 +83,7 @@ func BuildNamespaceInfoMetrics(tagData []model.TaggedResourceResult, metrics []*
 					continue
 				}
 
-				labelName := "tag_" + promTag
+				labelName := promTag
 				promLabels[labelName] = tag.Value
 			}
 
@@ -243,7 +243,7 @@ func createPrometheusLabels(cwd *model.CloudwatchData, labelsSnakeCase bool, con
 			logger.Warn("dimension name is an invalid prometheus label name", "dimension", dimension.Name)
 			continue
 		}
-		labels["dimension_"+promTag] = dimension.Value
+		labels[promTag] = dimension.Value
 	}
 
 	for _, tag := range cwd.Tags {
@@ -252,7 +252,7 @@ func createPrometheusLabels(cwd *model.CloudwatchData, labelsSnakeCase bool, con
 			logger.Warn("metric tag name is an invalid prometheus label name", "tag", tag.Key)
 			continue
 		}
-		labels["tag_"+promTag] = tag.Value
+		labels[promTag] = tag.Value
 	}
 
 	maps.Copy(labels, contextLabels)
