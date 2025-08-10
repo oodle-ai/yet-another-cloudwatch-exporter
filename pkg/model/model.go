@@ -254,7 +254,20 @@ func (r TaggedResource) FilterThroughTags(filterTags []SearchTag) bool {
 // if it exists (otherwise an empty string).
 func (r TaggedResource) MetricTags(exportedTags []string) []Tag {
 	if len(exportedTags) == 0 {
-		return []Tag{}
+		if len(r.Tags) == 0 {
+			return []Tag{}
+		}
+
+		tags := make([]Tag, 0, len(r.Tags))
+		for _, resourceTag := range r.Tags {
+			tag := Tag{
+				Key:   resourceTag.Key,
+				Value: resourceTag.Value,
+			}
+			tags = append(tags, tag)
+		}
+
+		return tags
 	}
 
 	tags := make([]Tag, 0, len(exportedTags))
