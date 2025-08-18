@@ -61,7 +61,8 @@ func runDiscoveryJob(
 	}
 
 	svc := config.SupportedServices.GetService(job.Namespace)
-	getMetricDatas := getMetricDataForQueries(ctx, logger, job, svc, clientCloudwatch, resources)
+	hasSearchTags := len(job.SearchTags) > 0
+	getMetricDatas := getMetricDataForQueries(ctx, logger, job, svc, clientCloudwatch, resources, hasSearchTags)
 	if len(getMetricDatas) == 0 {
 		logger.Info("No metrics data found")
 		return resources, nil
@@ -83,6 +84,7 @@ func getMetricDataForQueries(
 	svc *config.ServiceConfig,
 	clientCloudwatch cloudwatch.Client,
 	resources []*model.TaggedResource,
+	hasSearchTags bool,
 ) []*model.CloudwatchData {
 	mux := &sync.Mutex{}
 	var getMetricDatas []*model.CloudwatchData
@@ -106,7 +108,16 @@ func getMetricDataForQueries(
 			defer wg.Done()
 
 			err := clientCloudwatch.ListMetrics(ctx, svc.Namespace, metric, discoveryJob.RecentlyActiveOnly, func(page []*model.Metric) {
-				data := getFilteredMetricDatas(logger, discoveryJob.Namespace, discoveryJob.ExportedTagsOnMetrics, page, discoveryJob.DimensionNameRequirements, metric, assoc)
+				data := getFilteredMetricDatas(
+					logger,
+					discoveryJob.Namespace,
+					discoveryJob.ExportedTagsOnMetrics,
+					page,
+					discoveryJob.DimensionNameRequirements,
+					metric,
+					assoc,
+					hasSearchTags,
+				)
 
 				mux.Lock()
 				getMetricDatas = append(getMetricDatas, data...)
@@ -137,6 +148,7 @@ func getFilteredMetricDatas(
 	dimensionNameList []string,
 	m *model.MetricConfig,
 	assoc resourceAssociator,
+	hasSearchTags bool,
 ) []*model.CloudwatchData {
 	getMetricsData := make([]*model.CloudwatchData, 0, len(metricsList))
 	for _, cwMetric := range metricsList {
@@ -145,7 +157,9 @@ func getFilteredMetricDatas(
 		}
 
 		matchedResource, skip := assoc.AssociateMetricToResource(cwMetric)
-		if skip {
+		// Do not skip the metric if no search tags are specified in the configuration
+		// as resource matching is not necessary if filtering by tags is not requested
+		if skip && hasSearchTags {
 			dimensions := make([]string, 0, len(cwMetric.Dimensions))
 			for _, dim := range cwMetric.Dimensions {
 				dimensions = append(dimensions, fmt.Sprintf("%s=%s", dim.Name, dim.Value))
