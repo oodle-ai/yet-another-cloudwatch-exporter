@@ -224,7 +224,6 @@ func GetMetrics(
 	ctx context.Context,
 	logger *slog.Logger,
 	jobsCfg model.JobsConfig,
-	registry *prometheus.Registry,
 	factory clients.Factory,
 	optFuncs ...OptionsFunc,
 ) ([]model.TaggedResourceResult, []model.CloudwatchMetricResult, error) {

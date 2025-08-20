@@ -69,7 +69,7 @@ func BuildMetricName(namespace, metricName, statistic string) string {
 
 func BuildNamespaceInfoMetrics(tagData []model.TaggedResourceResult, metrics []*PrometheusMetric, observedMetricLabels map[string]model.LabelSet, labelsSnakeCase bool, logger *slog.Logger) ([]*PrometheusMetric, map[string]model.LabelSet) {
 	for _, tagResult := range tagData {
-		contextLabels := contextToLabels(tagResult.Context, labelsSnakeCase, logger)
+		contextLabels := ContextToLabels(tagResult.Context, labelsSnakeCase, logger)
 		for _, d := range tagResult.Data {
 			metricName := BuildMetricName(d.Namespace, "info", "")
 
@@ -87,7 +87,7 @@ func BuildNamespaceInfoMetrics(tagData []model.TaggedResourceResult, metrics []*
 				promLabels[labelName] = tag.Value
 			}
 
-			observedMetricLabels = recordLabelsForMetric(metricName, promLabels, observedMetricLabels)
+			observedMetricLabels = RecordLabelsForMetric(metricName, promLabels, observedMetricLabels)
 			metrics = append(metrics, &PrometheusMetric{
 				Name:   metricName,
 				Labels: promLabels,
@@ -104,14 +104,14 @@ func BuildMetrics(results []model.CloudwatchMetricResult, labelsSnakeCase bool, 
 	observedMetricLabels := make(map[string]model.LabelSet)
 
 	for _, result := range results {
-		contextLabels := contextToLabels(result.Context, labelsSnakeCase, logger)
+		contextLabels := ContextToLabels(result.Context, labelsSnakeCase, logger)
 		for _, metric := range result.Data {
 			// This should not be possible but check just in case
 			if metric.GetMetricStatisticsResult == nil && metric.GetMetricDataResult == nil {
 				logger.Warn("Attempted to migrate metric with no result", "namespace", metric.Namespace, "metric_name", metric.MetricName, "resource_name", metric.ResourceName)
 			}
 
-			for _, statistic := range statisticsInCloudwatchData(metric) {
+			for _, statistic := range StatisticsInCloudwatchData(metric) {
 				dataPoint, ts, err := getDatapoint(metric, statistic)
 				if err != nil {
 					return nil, nil, err
@@ -135,8 +135,8 @@ func BuildMetrics(results []model.CloudwatchMetricResult, labelsSnakeCase bool, 
 
 				name := BuildMetricName(metric.Namespace, metric.MetricName, statistic)
 
-				promLabels := createPrometheusLabels(metric, labelsSnakeCase, contextLabels, logger)
-				observedMetricLabels = recordLabelsForMetric(name, promLabels, observedMetricLabels)
+				promLabels := CreatePrometheusLabels(metric, labelsSnakeCase, contextLabels, logger)
+				observedMetricLabels = RecordLabelsForMetric(name, promLabels, observedMetricLabels)
 
 				output = append(output, &PrometheusMetric{
 					Name:             name,
@@ -153,7 +153,7 @@ func BuildMetrics(results []model.CloudwatchMetricResult, labelsSnakeCase bool, 
 	return output, observedMetricLabels, nil
 }
 
-func statisticsInCloudwatchData(d *model.CloudwatchData) []string {
+func StatisticsInCloudwatchData(d *model.CloudwatchData) []string {
 	if d.GetMetricDataResult != nil {
 		return []string{d.GetMetricDataResult.Statistic}
 	}
@@ -232,7 +232,7 @@ func sortByTimestamp(datapoints []*model.Datapoint) []*model.Datapoint {
 	return datapoints
 }
 
-func createPrometheusLabels(cwd *model.CloudwatchData, labelsSnakeCase bool, contextLabels map[string]string, logger *slog.Logger) map[string]string {
+func CreatePrometheusLabels(cwd *model.CloudwatchData, labelsSnakeCase bool, contextLabels map[string]string, logger *slog.Logger) map[string]string {
 	labels := make(map[string]string, len(cwd.Dimensions)+len(cwd.Tags)+len(contextLabels))
 	labels["name"] = cwd.ResourceName
 
@@ -260,7 +260,7 @@ func createPrometheusLabels(cwd *model.CloudwatchData, labelsSnakeCase bool, con
 	return labels
 }
 
-func contextToLabels(context *model.ScrapeContext, labelsSnakeCase bool, logger *slog.Logger) map[string]string {
+func ContextToLabels(context *model.ScrapeContext, labelsSnakeCase bool, logger *slog.Logger) map[string]string {
 	if context == nil {
 		return map[string]string{}
 	}
@@ -285,9 +285,9 @@ func contextToLabels(context *model.ScrapeContext, labelsSnakeCase bool, logger 
 	return labels
 }
 
-// recordLabelsForMetric adds any missing labels from promLabels in to the LabelSet for the metric name and returns
+// RecordLabelsForMetric adds any missing labels from promLabels in to the LabelSet for the metric name and returns
 // the updated observedMetricLabels
-func recordLabelsForMetric(metricName string, promLabels map[string]string, observedMetricLabels map[string]model.LabelSet) map[string]model.LabelSet {
+func RecordLabelsForMetric(metricName string, promLabels map[string]string, observedMetricLabels map[string]model.LabelSet) map[string]model.LabelSet {
 	if _, ok := observedMetricLabels[metricName]; !ok {
 		observedMetricLabels[metricName] = make(model.LabelSet, len(promLabels))
 	}
