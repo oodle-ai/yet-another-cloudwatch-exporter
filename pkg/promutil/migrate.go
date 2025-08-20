@@ -27,6 +27,8 @@ import (
 	"github.com/prometheus-community/yet-another-cloudwatch-exporter/pkg/model"
 )
 
+const oodleResourceKey = "oodle_resource_key"
+
 var Percentile = regexp.MustCompile(`^p(\d{1,2}(\.\d{0,2})?|100)$`)
 
 func BuildMetricName(namespace, metricName, statistic string) string {
@@ -75,7 +77,7 @@ func BuildNamespaceInfoMetrics(tagData []model.TaggedResourceResult, metrics []*
 
 			promLabels := make(map[string]string, len(d.Tags)+len(contextLabels)+1)
 			maps.Copy(promLabels, contextLabels)
-			promLabels["name"] = d.ARN
+			promLabels[oodleResourceKey] = d.ARN
 			for _, tag := range d.Tags {
 				ok, promTag := PromStringTag(tag.Key, labelsSnakeCase)
 				if !ok {
@@ -234,7 +236,7 @@ func sortByTimestamp(datapoints []*model.Datapoint) []*model.Datapoint {
 
 func CreatePrometheusLabels(cwd *model.CloudwatchData, labelsSnakeCase bool, contextLabels map[string]string, logger *slog.Logger) map[string]string {
 	labels := make(map[string]string, len(cwd.Dimensions)+len(cwd.Tags)+len(contextLabels))
-	labels["name"] = cwd.ResourceName
+	labels[oodleResourceKey] = cwd.ResourceName
 
 	// Inject the sfn name back as a label
 	for _, dimension := range cwd.Dimensions {
