@@ -217,3 +217,38 @@ func UpdateMetrics(
 	registry.MustRegister(promutil.NewPrometheusCollector(metrics))
 	return nil
 }
+
+// GetMetrics is equivalent to UpdateMetrics but it doesn't create/register prometheus metrics,
+// rather it return the metrics data.
+func GetMetrics(
+	ctx context.Context,
+	logger *slog.Logger,
+	jobsCfg model.JobsConfig,
+	factory clients.Factory,
+	optFuncs ...OptionsFunc,
+) ([]model.TaggedResourceResult, []model.CloudwatchMetricResult, error) {
+	// Use legacy validation as that's the behaviour of former releases.
+	prom.NameValidationScheme = prom.LegacyValidation
+
+	options := defaultOptions()
+	for _, f := range optFuncs {
+		if err := f(&options); err != nil {
+			return nil, nil, err
+		}
+	}
+
+	// add feature flags to context passed down to all other layers
+	ctx = config.CtxWithFlags(ctx, options.featureFlags)
+
+	tagsData, cloudwatchData := job.ScrapeAwsData(
+		ctx,
+		logger,
+		jobsCfg,
+		factory,
+		options.metricsPerQuery,
+		options.cloudwatchConcurrency,
+		options.taggingAPIConcurrency,
+	)
+
+	return tagsData, cloudwatchData, nil
+}

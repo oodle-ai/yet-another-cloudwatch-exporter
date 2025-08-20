@@ -204,6 +204,16 @@ type GetMetricDataResult struct {
 	Statistic string
 	Datapoint *float64
 	Timestamp time.Time
+
+	// The timestamps for the data points, formatted in Unix timestamp format. The
+	// number of timestamps always matches the number of values and the value for
+	// Timestamps[x] is Values[x].
+	Timestamps []time.Time
+
+	// The data points for the metric corresponding to Timestamps . The number of
+	// values always matches the number of timestamps and the timestamp for Values[x]
+	// is Timestamps[x].
+	Values []float64
 }
 
 // TaggedResource is an AWS resource with tags

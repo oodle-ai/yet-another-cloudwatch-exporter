@@ -132,9 +132,9 @@ func mapResultsToBatch(logger *slog.Logger, results []cloudwatch.MetricDataResul
 		if batch[id].GetMetricDataResult == nil {
 			cloudwatchData := batch[id]
 			cloudwatchData.GetMetricDataResult = &model.GetMetricDataResult{
-				Statistic: cloudwatchData.GetMetricDataProcessingParams.Statistic,
-				Datapoint: entry.Datapoint,
-				Timestamp: entry.Timestamp,
+				Statistic:  cloudwatchData.GetMetricDataProcessingParams.Statistic,
+				Timestamps: entry.Timestamps,
+				Values:     entry.Values,
 			}
 
 			// All GetMetricData processing is done clear the params
