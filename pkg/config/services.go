@@ -1063,4 +1063,8 @@ var SupportedServices = serviceConfigs{
 			regexp.MustCompile(":core-network/(?P<CoreNetwork>[^/]+)$"),
 		},
 	},
+	{
+		Namespace: "AWS/SWF",
+		Alias:     "swf",
+	},
 }
