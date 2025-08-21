@@ -1067,4 +1067,8 @@ var SupportedServices = serviceConfigs{
 		Namespace: "AWS/SWF",
 		Alias:     "swf",
 	},
+	{
+		Namespace: "AWS/CloudHSM",
+		Alias:     "cloudhsm",
+	},
 }
