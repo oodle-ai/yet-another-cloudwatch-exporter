@@ -1072,7 +1072,7 @@ var SupportedServices = serviceConfigs{
 		Alias:     "cloudhsm",
 	},
 	{
-		Namespace: "AWS/OpenSearch",
-		Alias:     "opensearch",
+		Namespace: "AWS/ES",
+		Alias:     "es",
 	},
 }
