@@ -45,9 +45,11 @@ func runDiscoveryJob(
 	gmdProcessor getMetricDataProcessor,
 ) ([]*model.TaggedResource, []*model.CloudwatchData) {
 	logger.Debug("Get tagged resources")
+	hasSearchTags := len(job.SearchTags) > 0
 
 	resources, err := clientTag.GetResources(ctx, job, region)
-	if err != nil {
+	if err != nil && hasSearchTags {
+		// Early return only if search tags were specified and we couldn't find resources
 		if errors.Is(err, tagging.ErrExpectedToFindResources) {
 			logger.Error("No tagged resources made it through filtering", "err", err)
 		} else {
@@ -61,7 +63,6 @@ func runDiscoveryJob(
 	}
 
 	svc := config.SupportedServices.GetService(job.Namespace)
-	hasSearchTags := len(job.SearchTags) > 0
 	getMetricDatas := getMetricDataForQueries(ctx, logger, job, svc, clientCloudwatch, resources, hasSearchTags)
 	if len(getMetricDatas) == 0 {
 		logger.Info("No metrics data found")
