@@ -75,6 +75,7 @@ type Role struct {
 type MetricConfig struct {
 	Name                   string
 	Statistics             []string
+	DefaultStatistic       string
 	Period                 int64
 	Length                 int64
 	Delay                  int64
