@@ -50,7 +50,9 @@ func (sc ServiceConfig) ToModelDimensionsRegexp() []model.DimensionsRegexp {
 		// skip first name, it's always an empty string
 		for i := 1; i < len(names); i++ {
 			// in the regex names we use underscores where AWS dimensions have spaces
-			dimensionNames = append(dimensionNames, strings.ReplaceAll(names[i], "_", " "))
+			// Lower case dimension names as some of the AWS services have different cases, e.g.
+			// RDS has both DBInstanceIdentifier and DbInstanceIdentifier.
+			dimensionNames = append(dimensionNames, strings.ToLower(strings.ReplaceAll(names[i], "_", " ")))
 		}
 
 		dr = append(dr, model.DimensionsRegexp{

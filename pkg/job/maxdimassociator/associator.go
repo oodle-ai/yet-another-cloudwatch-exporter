@@ -100,7 +100,7 @@ func NewAssociator(logger *slog.Logger, dimensionsRegexps []model.DimensionsRege
 
 			labels := make(map[string]string, len(match))
 			for i := 1; i < len(match); i++ {
-				labels[dr.DimensionsNames[i-1]] = match[i]
+				labels[strings.ToLower(dr.DimensionsNames[i-1])] = match[i]
 			}
 			signature := prom_model.LabelsToSignature(labels)
 			m.dimensionsMapping[signature] = r
@@ -234,8 +234,8 @@ func buildLabelsMap(cwMetric *model.Metric, regexpMapping *dimensionsRegexpMappi
 				mDimension, dimFixApplied = fixDimension(cwMetric.Namespace, mDimension)
 			}
 
-			if rDimension == mDimension.Name {
-				labels[mDimension.Name] = mDimension.Value
+			if strings.EqualFold(rDimension, mDimension.Name) {
+				labels[strings.ToLower(mDimension.Name)] = mDimension.Value
 			}
 		}
 	}
@@ -269,9 +269,12 @@ func fixDimension(namespace string, dim model.Dimension) (model.Dimension, bool)
 // containsAll returns true if a contains all elements of b
 func containsAll(a, b []string) bool {
 	for _, e := range b {
-		if slices.Contains(a, e) {
+		if slices.ContainsFunc(a, func(s string) bool {
+			return strings.EqualFold(s, e)
+		}) {
 			continue
 		}
+
 		return false
 	}
 	return true

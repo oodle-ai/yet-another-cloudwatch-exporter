@@ -211,7 +211,7 @@ func metricDimensionsMatchNames(metric *model.Metric, dimensionNameRequirements 
 	for _, dimension := range metric.Dimensions {
 		foundMatch := false
 		for _, dimensionName := range dimensionNameRequirements {
-			if dimension.Name == dimensionName {
+			if strings.EqualFold(dimension.Name, dimensionName) {
 				foundMatch = true
 				break
 			}
