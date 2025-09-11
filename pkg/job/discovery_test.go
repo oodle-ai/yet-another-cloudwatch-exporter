@@ -32,9 +32,9 @@ func Test_getFilteredMetricDatas(t *testing.T) {
 		tagsOnMetrics             []string
 		dimensionRegexps          []model.DimensionsRegexp
 		dimensionNameRequirements []string
+		metricsConfig             []*model.MetricConfig
 		resources                 []*model.TaggedResource
 		metricsList               []*model.Metric
-		m                         *model.MetricConfig
 	}
 	tests := []struct {
 		name               string
@@ -82,7 +82,7 @@ func Test_getFilteredMetricDatas(t *testing.T) {
 						Namespace: "AWS/EFS",
 					},
 				},
-				m: &model.MetricConfig{
+				metricsConfig: []*model.MetricConfig{{
 					Name: "StorageBytes",
 					Statistics: []string{
 						"Average",
@@ -92,7 +92,7 @@ func Test_getFilteredMetricDatas(t *testing.T) {
 					Delay:                  120,
 					NilToZero:              false,
 					AddCloudwatchTimestamp: false,
-				},
+				}},
 			},
 			[]model.CloudwatchData{
 				{
@@ -169,7 +169,7 @@ func Test_getFilteredMetricDatas(t *testing.T) {
 						Namespace: "AWS/EC2",
 					},
 				},
-				m: &model.MetricConfig{
+				metricsConfig: []*model.MetricConfig{{
 					Name: "CPUUtilization",
 					Statistics: []string{
 						"Average",
@@ -179,7 +179,7 @@ func Test_getFilteredMetricDatas(t *testing.T) {
 					Delay:                  120,
 					NilToZero:              false,
 					AddCloudwatchTimestamp: false,
-				},
+				}},
 			},
 			[]model.CloudwatchData{
 				{
@@ -252,7 +252,7 @@ func Test_getFilteredMetricDatas(t *testing.T) {
 						Namespace: "AWS/Kafka",
 					},
 				},
-				m: &model.MetricConfig{
+				metricsConfig: []*model.MetricConfig{{
 					Name: "GlobalTopicCount",
 					Statistics: []string{
 						"Average",
@@ -262,7 +262,7 @@ func Test_getFilteredMetricDatas(t *testing.T) {
 					Delay:                  120,
 					NilToZero:              false,
 					AddCloudwatchTimestamp: false,
-				},
+				}},
 			},
 			[]model.CloudwatchData{
 				{
@@ -379,7 +379,7 @@ func Test_getFilteredMetricDatas(t *testing.T) {
 						Namespace: "AWS/ApplicationELB",
 					},
 				},
-				m: &model.MetricConfig{
+				metricsConfig: []*model.MetricConfig{{
 					Name: "RequestCount",
 					Statistics: []string{
 						"Sum",
@@ -389,7 +389,7 @@ func Test_getFilteredMetricDatas(t *testing.T) {
 					Delay:                  120,
 					NilToZero:              false,
 					AddCloudwatchTimestamp: false,
-				},
+				}},
 			},
 			[]model.CloudwatchData{
 				{
@@ -406,7 +406,12 @@ func Test_getFilteredMetricDatas(t *testing.T) {
 					},
 					ResourceName: "arn:aws:elasticloadbalancing:us-east-1:123123123123:loadbalancer/app/some-ALB/0123456789012345",
 					Namespace:    "alb",
-					Tags:         []model.Tag{},
+					Tags: []model.Tag{
+						{
+							Key:   "Name",
+							Value: "some-ALB",
+						},
+					},
 					GetMetricDataProcessingParams: &model.GetMetricDataProcessingParams{
 						Statistic: "Sum",
 						Period:    60,
@@ -424,7 +429,16 @@ func Test_getFilteredMetricDatas(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			assoc := maxdimassociator.NewAssociator(promslog.NewNopLogger(), tt.args.dimensionRegexps, tt.args.resources)
-			metricDatas := getFilteredMetricDatas(promslog.NewNopLogger(), tt.args.namespace, tt.args.tagsOnMetrics, tt.args.metricsList, tt.args.dimensionNameRequirements, tt.args.m, assoc)
+			metricDatas := getFilteredMetricDatas(
+				promslog.NewNopLogger(),
+				tt.args.namespace,
+				tt.args.tagsOnMetrics,
+				tt.args.metricsList,
+				tt.args.metricsConfig,
+				tt.args.dimensionNameRequirements,
+				assoc,
+				false, /* hasSearchTags */
+			)
 			if len(metricDatas) != len(tt.wantGetMetricsData) {
 				t.Errorf("len(getFilteredMetricDatas()) = %v, want %v", len(metricDatas), len(tt.wantGetMetricsData))
 			}

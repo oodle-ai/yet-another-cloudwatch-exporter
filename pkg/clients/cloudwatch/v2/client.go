@@ -39,8 +39,12 @@ func NewClient(logger *slog.Logger, cloudwatchAPI *cloudwatch.Client) cloudwatch
 }
 
 func (c client) ListMetrics(ctx context.Context, namespace string, metric *model.MetricConfig, recentlyActiveOnly bool, fn func(page []*model.Metric)) error {
+	var metricName *string
+	if metric != nil {
+		metricName = aws.String(metric.Name)
+	}
 	filter := &cloudwatch.ListMetricsInput{
-		MetricName: aws.String(metric.Name),
+		MetricName: metricName,
 		Namespace:  aws.String(namespace),
 	}
 	if recentlyActiveOnly {

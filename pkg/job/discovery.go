@@ -18,7 +18,6 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
-	"sync"
 
 	"github.com/prometheus-community/yet-another-cloudwatch-exporter/pkg/clients/cloudwatch"
 	"github.com/prometheus-community/yet-another-cloudwatch-exporter/pkg/clients/tagging"
@@ -87,7 +86,6 @@ func getMetricDataForQueries(
 	resources []*model.TaggedResource,
 	hasSearchTags bool,
 ) []*model.CloudwatchData {
-	mux := &sync.Mutex{}
 	var getMetricDatas []*model.CloudwatchData
 
 	var assoc resourceAssociator
@@ -98,40 +96,26 @@ func getMetricDataForQueries(
 		assoc = nopAssociator{}
 	}
 
-	var wg sync.WaitGroup
-	wg.Add(len(discoveryJob.Metrics))
+	// Query all recently active metrics for the namespace and filter based on discovery job configuration
+	err := clientCloudwatch.ListMetrics(ctx, svc.Namespace, nil /* metric */, discoveryJob.RecentlyActiveOnly, func(page []*model.Metric) {
+		data := getFilteredMetricDatas(
+			logger,
+			discoveryJob.Namespace,
+			discoveryJob.ExportedTagsOnMetrics,
+			page,
+			discoveryJob.Metrics,
+			discoveryJob.DimensionNameRequirements,
+			assoc,
+			hasSearchTags,
+		)
 
-	// For every metric of the job call the ListMetrics API
-	// to fetch the existing combinations of dimensions and
-	// value of dimensions with data.
-	for _, metric := range discoveryJob.Metrics {
-		go func(metric *model.MetricConfig) {
-			defer wg.Done()
-
-			err := clientCloudwatch.ListMetrics(ctx, svc.Namespace, metric, discoveryJob.RecentlyActiveOnly, func(page []*model.Metric) {
-				data := getFilteredMetricDatas(
-					logger,
-					discoveryJob.Namespace,
-					discoveryJob.ExportedTagsOnMetrics,
-					page,
-					discoveryJob.DimensionNameRequirements,
-					metric,
-					assoc,
-					hasSearchTags,
-				)
-
-				mux.Lock()
-				getMetricDatas = append(getMetricDatas, data...)
-				mux.Unlock()
-			})
-			if err != nil {
-				logger.Error("Failed to get full metric list", "metric_name", metric.Name, "namespace", svc.Namespace, "err", err)
-				return
-			}
-		}(metric)
+		getMetricDatas = append(getMetricDatas, data...)
+	})
+	if err != nil {
+		logger.Error("Failed to get full metric list", "namespace", svc.Namespace, "err", err)
+		return getMetricDatas
 	}
 
-	wg.Wait()
 	return getMetricDatas
 }
 
@@ -146,13 +130,23 @@ func getFilteredMetricDatas(
 	namespace string,
 	tagsOnMetrics []string,
 	metricsList []*model.Metric,
+	discoveryJobMetrics []*model.MetricConfig,
 	dimensionNameList []string,
-	m *model.MetricConfig,
 	assoc resourceAssociator,
 	hasSearchTags bool,
 ) []*model.CloudwatchData {
+	metricNameToDiscoveryJobMetricConfig := make(map[string]*model.MetricConfig)
+	for _, djMetric := range discoveryJobMetrics {
+		metricNameToDiscoveryJobMetricConfig[djMetric.Name] = djMetric
+	}
+
 	getMetricsData := make([]*model.CloudwatchData, 0, len(metricsList))
 	for _, cwMetric := range metricsList {
+		djMetric, ok := metricNameToDiscoveryJobMetricConfig[cwMetric.MetricName]
+		if !ok {
+			continue
+		}
+
 		if len(dimensionNameList) > 0 && !metricDimensionsMatchNames(cwMetric, dimensionNameList) {
 			continue
 		}
@@ -165,7 +159,7 @@ func getFilteredMetricDatas(
 			for _, dim := range cwMetric.Dimensions {
 				dimensions = append(dimensions, fmt.Sprintf("%s=%s", dim.Name, dim.Value))
 			}
-			logger.Debug("skipping metric unmatched by associator", "metric", m.Name, "dimensions", strings.Join(dimensions, ","))
+			logger.Debug("skipping metric unmatched by associator", "metric", djMetric.Name, "dimensions", strings.Join(dimensions, ","))
 
 			continue
 		}
@@ -179,21 +173,21 @@ func getFilteredMetricDatas(
 		}
 
 		metricTags := resource.MetricTags(tagsOnMetrics)
-		for _, stat := range m.Statistics {
+		for _, stat := range djMetric.Statistics {
 			getMetricsData = append(getMetricsData, &model.CloudwatchData{
-				MetricName:   m.Name,
+				MetricName:   djMetric.Name,
 				ResourceName: resource.ARN,
 				Namespace:    namespace,
 				Dimensions:   cwMetric.Dimensions,
 				GetMetricDataProcessingParams: &model.GetMetricDataProcessingParams{
-					Period:    m.Period,
-					Length:    m.Length,
-					Delay:     m.Delay,
+					Period:    djMetric.Period,
+					Length:    djMetric.Length,
+					Delay:     djMetric.Delay,
 					Statistic: stat,
 				},
 				MetricMigrationParams: model.MetricMigrationParams{
-					NilToZero:              m.NilToZero,
-					AddCloudwatchTimestamp: m.AddCloudwatchTimestamp,
+					NilToZero:              djMetric.NilToZero,
+					AddCloudwatchTimestamp: djMetric.AddCloudwatchTimestamp,
 				},
 				Tags:                      metricTags,
 				GetMetricDataResult:       nil,
