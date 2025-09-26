@@ -16,10 +16,10 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/service/iam"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
-
 	"github.com/prometheus-community/yet-another-cloudwatch-exporter/pkg/clients/account"
 )
 
@@ -27,17 +27,33 @@ type client struct {
 	logger    *slog.Logger
 	stsClient *sts.Client
 	iamClient *iam.Client
+
+	account                       string
+	accountLastRefreshedTime      time.Time
+	accountAlias                  string
+	accountAliasLastRefreshedTime time.Time
 }
 
+var cacheTTL = time.Hour
+
 func NewClient(logger *slog.Logger, stsClient *sts.Client, iamClient *iam.Client) account.Client {
+
 	return &client{
-		logger:    logger,
-		stsClient: stsClient,
-		iamClient: iamClient,
+		logger:                        logger,
+		stsClient:                     stsClient,
+		iamClient:                     iamClient,
+		account:                       "",
+		accountLastRefreshedTime:      time.Now(),
+		accountAlias:                  "",
+		accountAliasLastRefreshedTime: time.Now(),
 	}
 }
 
 func (c client) GetAccount(ctx context.Context) (string, error) {
+	if len(c.account) > 0 && (time.Since(c.accountLastRefreshedTime) <= cacheTTL) {
+		return c.account, nil
+	}
+
 	result, err := c.stsClient.GetCallerIdentity(ctx, &sts.GetCallerIdentityInput{})
 	if err != nil {
 		return "", err
@@ -45,10 +61,17 @@ func (c client) GetAccount(ctx context.Context) (string, error) {
 	if result.Account == nil {
 		return "", errors.New("aws sts GetCallerIdentityWithContext returned no account")
 	}
+
+	c.account = *result.Account
+	c.accountLastRefreshedTime = time.Now()
 	return *result.Account, nil
 }
 
 func (c client) GetAccountAlias(ctx context.Context) (string, error) {
+	if len(c.accountAlias) > 0 && (time.Since(c.accountAliasLastRefreshedTime) <= cacheTTL) {
+		return c.accountAlias, nil
+	}
+
 	acctAliasOut, err := c.iamClient.ListAccountAliases(ctx, &iam.ListAccountAliasesInput{})
 	if err != nil {
 		return "", err
@@ -63,5 +86,7 @@ func (c client) GetAccountAlias(ctx context.Context) (string, error) {
 		possibleAccountAlias = acctAliasOut.AccountAliases[0]
 	}
 
+	c.accountAlias = possibleAccountAlias
+	c.accountAliasLastRefreshedTime = time.Now()
 	return possibleAccountAlias, nil
 }
