@@ -43,6 +43,7 @@ type DiscoveryJob struct {
 	ExportedTagsOnMetrics       []string
 	IncludeContextOnInfoMetrics bool
 	DimensionsRegexps           []DimensionsRegexp
+	DedupeResourceMetrics       bool
 }
 
 type StaticJob struct {
