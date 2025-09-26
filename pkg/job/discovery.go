@@ -34,6 +34,11 @@ type getMetricDataProcessor interface {
 	Run(ctx context.Context, namespace string, requests []*model.CloudwatchData) ([]*model.CloudwatchData, error)
 }
 
+type metricInfo struct {
+	cwMetric   *model.Metric
+	metricConf *model.MetricConfig
+}
+
 func runDiscoveryJob(
 	ctx context.Context,
 	logger *slog.Logger,
@@ -96,6 +101,12 @@ func getMetricDataForQueries(
 		assoc = nopAssociator{}
 	}
 
+	metricNameResourceToMetricMap := make(map[string]map[*model.TaggedResource][]*metricInfo)
+	globalResource := &model.TaggedResource{
+		ARN:       "global",
+		Namespace: discoveryJob.Namespace,
+	}
+
 	// Query all recently active metrics for the namespace and filter based on discovery job configuration
 	err := clientCloudwatch.ListMetrics(ctx, svc.Namespace, nil /* metric */, discoveryJob.RecentlyActiveOnly, func(page []*model.Metric) {
 		data := getFilteredMetricDatas(
@@ -107,6 +118,9 @@ func getMetricDataForQueries(
 			discoveryJob.DimensionNameRequirements,
 			assoc,
 			hasSearchTags,
+			discoveryJob.DedupeResourceMetrics,
+			metricNameResourceToMetricMap,
+			globalResource,
 		)
 
 		getMetricDatas = append(getMetricDatas, data...)
@@ -114,6 +128,37 @@ func getMetricDataForQueries(
 	if err != nil {
 		logger.Error("Failed to get full metric list", "namespace", svc.Namespace, "err", err)
 		return getMetricDatas
+	}
+
+	if discoveryJob.DedupeResourceMetrics {
+		for _, resourceToMetricMap := range metricNameResourceToMetricMap {
+			for resource, metrics := range resourceToMetricMap {
+				for _, metric := range metrics {
+					metricTags := resource.MetricTags(discoveryJob.ExportedTagsOnMetrics)
+					for _, stat := range metric.metricConf.Statistics {
+						getMetricDatas = append(getMetricDatas, &model.CloudwatchData{
+							MetricName:   metric.metricConf.Name,
+							ResourceName: resource.ARN,
+							Namespace:    resource.Namespace,
+							Dimensions:   metric.cwMetric.Dimensions,
+							GetMetricDataProcessingParams: &model.GetMetricDataProcessingParams{
+								Period:    metric.metricConf.Period,
+								Length:    metric.metricConf.Length,
+								Delay:     metric.metricConf.Delay,
+								Statistic: stat,
+							},
+							MetricMigrationParams: model.MetricMigrationParams{
+								NilToZero:              metric.metricConf.NilToZero,
+								AddCloudwatchTimestamp: metric.metricConf.AddCloudwatchTimestamp,
+							},
+							Tags:                      metricTags,
+							GetMetricDataResult:       nil,
+							GetMetricStatisticsResult: nil,
+						})
+					}
+				}
+			}
+		}
 	}
 
 	return getMetricDatas
@@ -134,6 +179,9 @@ func getFilteredMetricDatas(
 	dimensionNameList []string,
 	assoc resourceAssociator,
 	hasSearchTags bool,
+	dedupeResourceMetrics bool,
+	metricNameResourceToMetricMap map[string]map[*model.TaggedResource][]*metricInfo,
+	globalResource *model.TaggedResource,
 ) []*model.CloudwatchData {
 	metricNameToDiscoveryJobMetricConfig := make(map[string]*model.MetricConfig)
 	for _, djMetric := range discoveryJobMetrics {
@@ -166,33 +214,68 @@ func getFilteredMetricDatas(
 
 		resource := matchedResource
 		if resource == nil {
-			resource = &model.TaggedResource{
-				ARN:       "global",
-				Namespace: namespace,
-			}
+			resource = globalResource
 		}
 
-		metricTags := resource.MetricTags(tagsOnMetrics)
-		for _, stat := range djMetric.Statistics {
-			getMetricsData = append(getMetricsData, &model.CloudwatchData{
-				MetricName:   djMetric.Name,
-				ResourceName: resource.ARN,
-				Namespace:    namespace,
-				Dimensions:   cwMetric.Dimensions,
-				GetMetricDataProcessingParams: &model.GetMetricDataProcessingParams{
-					Period:    djMetric.Period,
-					Length:    djMetric.Length,
-					Delay:     djMetric.Delay,
-					Statistic: stat,
-				},
-				MetricMigrationParams: model.MetricMigrationParams{
-					NilToZero:              djMetric.NilToZero,
-					AddCloudwatchTimestamp: djMetric.AddCloudwatchTimestamp,
-				},
-				Tags:                      metricTags,
-				GetMetricDataResult:       nil,
-				GetMetricStatisticsResult: nil,
-			})
+		if dedupeResourceMetrics {
+			if _, ok := metricNameResourceToMetricMap[cwMetric.MetricName]; !ok {
+				metricNameResourceToMetricMap[cwMetric.MetricName] = make(map[*model.TaggedResource][]*metricInfo)
+			}
+
+			resourceToMetricMap := metricNameResourceToMetricMap[cwMetric.MetricName]
+			if existingMetrics, ok := resourceToMetricMap[resource]; !ok {
+				resourceToMetricMap[resource] = []*metricInfo{{cwMetric: cwMetric, metricConf: djMetric}}
+			} else {
+				foundSuperset := false
+				foundSubset := false
+				for i, existingMetric := range existingMetrics {
+					if hasSupersetDimensions(cwMetric, existingMetric.cwMetric) {
+						// replace existing metric if current metric is more granular
+						resourceToMetricMap[resource][i] = &metricInfo{cwMetric: cwMetric, metricConf: djMetric}
+						foundSuperset = true
+						break
+					} else if hasSupersetDimensions(existingMetric.cwMetric, cwMetric) {
+						// skip current metric if existing metric is more granular
+						foundSubset = true
+						break
+					}
+				}
+
+				if !foundSuperset && !foundSubset {
+					// Current metric has a disjoint set of dimensions, add it to the list for which metric
+					// data needs to be fetched.
+					resourceToMetricMap[resource] = append(
+						resourceToMetricMap[resource],
+						&metricInfo{cwMetric: cwMetric, metricConf: djMetric},
+					)
+				}
+			}
+
+			// For dedupedResourceMetrics, getMetricsData is populated after iterating over all metrics
+			// to be able to dedupe across multiple pages.
+		} else {
+			metricTags := resource.MetricTags(tagsOnMetrics)
+			for _, stat := range djMetric.Statistics {
+				getMetricsData = append(getMetricsData, &model.CloudwatchData{
+					MetricName:   djMetric.Name,
+					ResourceName: resource.ARN,
+					Namespace:    namespace,
+					Dimensions:   cwMetric.Dimensions,
+					GetMetricDataProcessingParams: &model.GetMetricDataProcessingParams{
+						Period:    djMetric.Period,
+						Length:    djMetric.Length,
+						Delay:     djMetric.Delay,
+						Statistic: stat,
+					},
+					MetricMigrationParams: model.MetricMigrationParams{
+						NilToZero:              djMetric.NilToZero,
+						AddCloudwatchTimestamp: djMetric.AddCloudwatchTimestamp,
+					},
+					Tags:                      metricTags,
+					GetMetricDataResult:       nil,
+					GetMetricStatisticsResult: nil,
+				})
+			}
 		}
 	}
 	return getMetricsData
@@ -214,5 +297,26 @@ func metricDimensionsMatchNames(metric *model.Metric, dimensionNameRequirements 
 			return false
 		}
 	}
+	return true
+}
+
+func hasSupersetDimensions(current *model.Metric, old *model.Metric) bool {
+	if len(current.Dimensions) < len(old.Dimensions) {
+		return false
+	}
+
+	for _, oldDim := range old.Dimensions {
+		found := false
+		for _, currentDim := range current.Dimensions {
+			if strings.EqualFold(oldDim.Name, currentDim.Name) && oldDim.Value == currentDim.Value {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+
 	return true
 }
