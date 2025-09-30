@@ -220,6 +220,9 @@ func getFilteredMetricDatas(
 			djMetric = &model.MetricConfig{
 				Name:       cwMetric.MetricName,
 				Statistics: defaultStatistics,
+				Period:     defaultDiscoveryJobPeriod,
+				Length:     defaultDiscoveryJobLength,
+				Delay:      defaultDiscoveryJobDelay,
 			}
 		}
 
@@ -290,9 +293,9 @@ func getFilteredMetricDatas(
 					Namespace:    namespace,
 					Dimensions:   cwMetric.Dimensions,
 					GetMetricDataProcessingParams: &model.GetMetricDataProcessingParams{
-						Period:    defaultDiscoveryJobPeriod,
-						Length:    defaultDiscoveryJobLength,
-						Delay:     defaultDiscoveryJobDelay,
+						Period:    djMetric.Period,
+						Length:    djMetric.Length,
+						Delay:     djMetric.Delay,
 						Statistic: stat,
 					},
 					MetricMigrationParams: model.MetricMigrationParams{
