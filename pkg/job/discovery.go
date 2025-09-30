@@ -19,6 +19,7 @@ import (
 	"log/slog"
 	"strings"
 
+	awstypes "github.com/aws/aws-sdk-go-v2/service/cloudwatch/types"
 	"github.com/prometheus-community/yet-another-cloudwatch-exporter/pkg/clients/cloudwatch"
 	"github.com/prometheus-community/yet-another-cloudwatch-exporter/pkg/clients/tagging"
 	"github.com/prometheus-community/yet-another-cloudwatch-exporter/pkg/config"
@@ -37,6 +38,24 @@ type getMetricDataProcessor interface {
 type metricInfo struct {
 	cwMetric   *model.Metric
 	metricConf *model.MetricConfig
+}
+
+const (
+	defaultDiscoveryJobPeriod = 60
+	// Below 2 settings effectively mean that we query metric data for `[now-15m, now-5m]` range
+	// This avoids any gaps in metric data in case of small delays in scheduling. Each scrape cycle
+	// runs every 5m, so 2 consecutive scrape cycle has an overlap of 5m window for which both scrape
+	// cycles will pull the data. This assumes de-duplication is handled during ingestion.
+	defaultDiscoveryJobLength = 600
+	defaultDiscoveryJobDelay  = 300
+)
+
+var defaultStatistics = []string{
+	string(awstypes.StatisticAverage),
+	string(awstypes.StatisticSum),
+	string(awstypes.StatisticSampleCount),
+	string(awstypes.StatisticMaximum),
+	string(awstypes.StatisticMinimum),
 }
 
 func runDiscoveryJob(
@@ -119,6 +138,7 @@ func getMetricDataForQueries(
 			assoc,
 			hasSearchTags,
 			discoveryJob.DedupeResourceMetrics,
+			discoveryJob.IncludeAllMetrics,
 			metricNameResourceToMetricMap,
 			globalResource,
 		)
@@ -180,6 +200,7 @@ func getFilteredMetricDatas(
 	assoc resourceAssociator,
 	hasSearchTags bool,
 	dedupeResourceMetrics bool,
+	includeAllMetrics bool,
 	metricNameResourceToMetricMap map[string]map[*model.TaggedResource][]*metricInfo,
 	globalResource *model.TaggedResource,
 ) []*model.CloudwatchData {
@@ -192,7 +213,17 @@ func getFilteredMetricDatas(
 	for _, cwMetric := range metricsList {
 		djMetric, ok := metricNameToDiscoveryJobMetricConfig[cwMetric.MetricName]
 		if !ok {
-			continue
+			if !includeAllMetrics {
+				continue
+			}
+
+			djMetric = &model.MetricConfig{
+				Name:       cwMetric.MetricName,
+				Statistics: defaultStatistics,
+				Period:     defaultDiscoveryJobPeriod,
+				Length:     defaultDiscoveryJobLength,
+				Delay:      defaultDiscoveryJobDelay,
+			}
 		}
 
 		if len(dimensionNameList) > 0 && !metricDimensionsMatchNames(cwMetric, dimensionNameList) {
