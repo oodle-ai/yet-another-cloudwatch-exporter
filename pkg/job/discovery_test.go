@@ -428,6 +428,11 @@ func Test_getFilteredMetricDatas(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			metricNameResourceToMetricMap := make(map[string]map[*model.TaggedResource][]*metricInfo)
+			globalResource := &model.TaggedResource{
+				ARN:       "global",
+				Namespace: tt.args.namespace,
+			}
 			assoc := maxdimassociator.NewAssociator(promslog.NewNopLogger(), tt.args.dimensionRegexps, tt.args.resources)
 			metricDatas := getFilteredMetricDatas(
 				promslog.NewNopLogger(),
@@ -437,7 +442,11 @@ func Test_getFilteredMetricDatas(t *testing.T) {
 				tt.args.metricsConfig,
 				tt.args.dimensionNameRequirements,
 				assoc,
-				false, /* hasSearchTags */
+				false, // hasSearchTags
+				false, // dedupResourceMetrics
+				false, // includeAllMetrics
+				metricNameResourceToMetricMap,
+				globalResource,
 			)
 			if len(metricDatas) != len(tt.wantGetMetricsData) {
 				t.Errorf("len(getFilteredMetricDatas()) = %v, want %v", len(metricDatas), len(tt.wantGetMetricsData))

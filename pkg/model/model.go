@@ -44,6 +44,7 @@ type DiscoveryJob struct {
 	IncludeContextOnInfoMetrics bool
 	DimensionsRegexps           []DimensionsRegexp
 	DedupeResourceMetrics       bool
+	IncludeAllMetrics           bool
 }
 
 type StaticJob struct {
