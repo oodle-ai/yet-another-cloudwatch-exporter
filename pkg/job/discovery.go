@@ -58,6 +58,26 @@ var defaultStatistics = []string{
 	string(awstypes.StatisticMinimum),
 }
 
+var defaultStatisticsForLatencyMetric = []string{
+	string(awstypes.StatisticAverage),
+	string(awstypes.StatisticSum),
+	string(awstypes.StatisticSampleCount),
+	string(awstypes.StatisticMaximum),
+	string(awstypes.StatisticMinimum),
+	"p50",
+	"p95",
+	"p99",
+}
+
+func getStatistics(cwMetric *model.Metric) []string {
+	if strings.HasSuffix(cwMetric.MetricName, "Latency") ||
+		strings.HasSuffix(cwMetric.MetricName, "Duration") {
+		return defaultStatisticsForLatencyMetric
+	}
+
+	return defaultStatistics
+}
+
 func runDiscoveryJob(
 	ctx context.Context,
 	logger *slog.Logger,
@@ -219,7 +239,7 @@ func getFilteredMetricDatas(
 
 			djMetric = &model.MetricConfig{
 				Name:       cwMetric.MetricName,
-				Statistics: defaultStatistics,
+				Statistics: getStatistics(cwMetric),
 				Period:     defaultDiscoveryJobPeriod,
 				Length:     defaultDiscoveryJobLength,
 				Delay:      defaultDiscoveryJobDelay,
