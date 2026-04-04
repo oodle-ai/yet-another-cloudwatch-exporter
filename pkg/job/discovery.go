@@ -41,13 +41,9 @@ type metricInfo struct {
 }
 
 const (
-	defaultDiscoveryJobPeriod = 60
-	// Below 2 settings effectively mean that we query metric data for `[now-15m, now-5m]` range
-	// This avoids any gaps in metric data in case of small delays in scheduling. Each scrape cycle
-	// runs every 5m, so 2 consecutive scrape cycle has an overlap of 5m window for which both scrape
-	// cycles will pull the data. This assumes de-duplication is handled during ingestion.
-	defaultDiscoveryJobLength = 600
-	defaultDiscoveryJobDelay  = 300
+	DefaultDiscoveryJobPeriod = 60
+	DefaultDiscoveryJobLength = 600
+	DefaultDiscoveryJobDelay  = 300
 )
 
 var defaultStatistics = []string{
@@ -69,13 +65,79 @@ var defaultStatisticsForLatencyMetric = []string{
 	"p99",
 }
 
-func getStatistics(cwMetric *model.Metric) []string {
+func GetStatistics(cwMetric *model.Metric) []string {
 	if strings.HasSuffix(cwMetric.MetricName, "Latency") ||
 		strings.HasSuffix(cwMetric.MetricName, "Duration") {
 		return defaultStatisticsForLatencyMetric
 	}
 
 	return defaultStatistics
+}
+
+// DiscoverMetrics runs the tagging and ListMetrics
+// phases of a discovery job, returning the tagged
+// resources and CloudwatchData entries with
+// GetMetricDataProcessingParams populated but
+// GetMetricDataResult still nil. Callers can augment
+// the returned data before passing it to
+// getmetricdata.Processor.Run.
+func DiscoverMetrics(
+	ctx context.Context,
+	logger *slog.Logger,
+	job model.DiscoveryJob,
+	region string,
+	clientTag tagging.Client,
+	clientCloudwatch cloudwatch.Client,
+) (
+	[]*model.TaggedResource,
+	[]*model.CloudwatchData,
+) {
+	logger.Debug("Get tagged resources")
+	hasSearchTags := len(job.SearchTags) > 0
+
+	resources, err := clientTag.GetResources(
+		ctx, job, region,
+	)
+	if err != nil && hasSearchTags {
+		if errors.Is(
+			err,
+			tagging.ErrExpectedToFindResources,
+		) {
+			logger.Error(
+				"No tagged resources made it through filtering",
+				"err", err,
+			)
+		} else {
+			logger.Error(
+				"Couldn't describe resources",
+				"err", err,
+			)
+		}
+		return nil, nil
+	}
+
+	if len(resources) == 0 {
+		logger.Debug(
+			"No tagged resources",
+			"region", region,
+			"namespace", job.Namespace,
+		)
+	}
+
+	svc := config.SupportedServices.GetService(
+		job.Namespace,
+	)
+	data := getMetricDataForQueries(
+		ctx,
+		logger,
+		job,
+		svc,
+		clientCloudwatch,
+		resources,
+		hasSearchTags,
+	)
+
+	return resources, data
 }
 
 func runDiscoveryJob(
@@ -87,34 +149,30 @@ func runDiscoveryJob(
 	clientCloudwatch cloudwatch.Client,
 	gmdProcessor getMetricDataProcessor,
 ) ([]*model.TaggedResource, []*model.CloudwatchData) {
-	logger.Debug("Get tagged resources")
-	hasSearchTags := len(job.SearchTags) > 0
-
-	resources, err := clientTag.GetResources(ctx, job, region)
-	if err != nil && hasSearchTags {
-		// Early return only if search tags were specified and we couldn't find resources
-		if errors.Is(err, tagging.ErrExpectedToFindResources) {
-			logger.Error("No tagged resources made it through filtering", "err", err)
-		} else {
-			logger.Error("Couldn't describe resources", "err", err)
-		}
-		return nil, nil
-	}
-
-	if len(resources) == 0 {
-		logger.Debug("No tagged resources", "region", region, "namespace", job.Namespace)
-	}
-
-	svc := config.SupportedServices.GetService(job.Namespace)
-	getMetricDatas := getMetricDataForQueries(ctx, logger, job, svc, clientCloudwatch, resources, hasSearchTags)
+	resources, getMetricDatas := DiscoverMetrics(
+		ctx,
+		logger,
+		job,
+		region,
+		clientTag,
+		clientCloudwatch,
+	)
 	if len(getMetricDatas) == 0 {
 		logger.Info("No metrics data found")
 		return resources, nil
 	}
 
-	getMetricDatas, err = gmdProcessor.Run(ctx, svc.Namespace, getMetricDatas)
+	svc := config.SupportedServices.GetService(
+		job.Namespace,
+	)
+	var err error
+	getMetricDatas, err = gmdProcessor.Run(
+		ctx, svc.Namespace, getMetricDatas,
+	)
 	if err != nil {
-		logger.Error("Failed to get metric data", "err", err)
+		logger.Error(
+			"Failed to get metric data", "err", err,
+		)
 		return nil, nil
 	}
 
@@ -239,10 +297,10 @@ func getFilteredMetricDatas(
 
 			djMetric = &model.MetricConfig{
 				Name:       cwMetric.MetricName,
-				Statistics: getStatistics(cwMetric),
-				Period:     defaultDiscoveryJobPeriod,
-				Length:     defaultDiscoveryJobLength,
-				Delay:      defaultDiscoveryJobDelay,
+				Statistics: GetStatistics(cwMetric),
+				Period:     DefaultDiscoveryJobPeriod,
+				Length:     DefaultDiscoveryJobLength,
+				Delay:      DefaultDiscoveryJobDelay,
 			}
 		}
 
