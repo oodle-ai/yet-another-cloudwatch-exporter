@@ -1077,4 +1077,18 @@ var SupportedServices = serviceConfigs{
 		Namespace: "AWS/ES",
 		Alias:     "es",
 	},
+	// Amazon Bedrock AgentCore and S3 Files publish to namespaces of their own,
+	// not under AWS/Bedrock or AWS/S3. Neither entry sets ResourceFilters,
+	// because the tagging API resource types and the ARN-to-dimension patterns
+	// for these resources are not established yet. Discovery therefore skips the
+	// tagging API and keeps every metric in the namespace, so tag filters have
+	// no effect on these two namespaces.
+	{
+		Namespace: "AWS/Bedrock-AgentCore",
+		Alias:     "bedrock-agentcore",
+	},
+	{
+		Namespace: "AWS/S3/Files",
+		Alias:     "s3-files",
+	},
 }
