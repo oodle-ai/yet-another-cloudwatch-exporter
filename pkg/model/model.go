@@ -45,6 +45,11 @@ type DiscoveryJob struct {
 	DimensionsRegexps           []DimensionsRegexp
 	DedupeResourceMetrics       bool
 	IncludeAllMetrics           bool
+	// KeepQuery, when it is set, tells for each metric and statistic if
+	// discovery requests it with GetMetricData. Discovery removes the other
+	// queries before it makes the batches, so a removed query costs nothing
+	// and does not leave a batch partly empty.
+	KeepQuery func(query *CloudwatchData) bool
 }
 
 type StaticJob struct {
