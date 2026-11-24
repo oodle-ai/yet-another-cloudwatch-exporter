@@ -17,6 +17,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 
 	awstypes "github.com/aws/aws-sdk-go-v2/service/cloudwatch/types"
@@ -107,6 +108,11 @@ func runDiscoveryJob(
 
 	svc := config.SupportedServices.GetService(job.Namespace)
 	getMetricDatas := getMetricDataForQueries(ctx, logger, job, svc, clientCloudwatch, resources, hasSearchTags)
+	if job.KeepQuery != nil {
+		getMetricDatas = slices.DeleteFunc(getMetricDatas, func(query *model.CloudwatchData) bool {
+			return !job.KeepQuery(query)
+		})
+	}
 	if len(getMetricDatas) == 0 {
 		logger.Info("No metrics data found")
 		return resources, nil
